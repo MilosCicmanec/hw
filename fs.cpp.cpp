@@ -2,12 +2,18 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <unistd.h>
 #include <vector>
 
 using namespace std;
 using vi = vector<int>;
 using ll = long long;
 using vl = vector<long long>;
+
+const int32_t BLOCK_EMPTY = -2;
+const int32_t BLOCK_EOF = -1;
+const int32_t BLOCK_X =
+    -3; // this will mark blocks such as superblock and fat table as not usable
 
 #pragma pack(push, 1)
 
@@ -24,6 +30,10 @@ struct Superblock {
 // global variables
 Superblock sb;
 fstream file;
+// write bin will work but only for simple data structs like int float etc
+template <typename T> void write_bin(fstream &fs, const T &data) {
+  fs.write(reinterpret_cast<const char *>(&data), sizeof(T));
+}
 
 void sup_init() {
   memset(sb.name, 0, sizeof(sb.name));
@@ -53,6 +63,17 @@ void wipe_disk() {
   cout << "Disk zeroed out completely" << endl;
 }
 
+void fat_init() {
+  file.seekp(sb.fat_start_block * sb.block_size);
+  for (int i = 0; i < sb.block_count; i++) {
+    if (i < sb.data_start_block) {
+      write_bin(file, BLOCK_X);
+    } else {
+      write_bin(file, BLOCK_EMPTY);
+    }
+  }
+}
+
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -62,10 +83,11 @@ int main() {
   }
   sup_init();
   wipe_disk(); // this should probably be optional
+  fat_init();
 
   // write the sperblock data onto the disk
   file.seekp(0);
-  file.write(reinterpret_cast<char *>(&sb), sizeof(Superblock));
+  write_bin(file, sb);
   file.flush();
 
   return 0;
