@@ -1,5 +1,7 @@
 #include <bits/stdc++.h>
 #include <cstdint>
+#include <cstring>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <unistd.h>
@@ -23,6 +25,15 @@ struct Superblock {
   uint32_t block_size; // in bytes
   uint32_t fat_start_block;
   uint32_t data_start_block;
+  uint32_t root_start_block;
+};
+
+struct DirEntry {
+  uint8_t is_used;      // 0 empty 1 full
+  char name[54];        // 54 bytes
+  uint8_t is_dir;       // 1 folder 0 file
+  uint32_t start_block; // the first block in fat
+  uint32_t size;        // file size in bytes
 };
 
 #pragma pack(pop)
@@ -33,6 +44,9 @@ fstream file;
 // write bin will work but only for simple data structs like int float etc
 template <typename T> void write_bin(fstream &fs, const T &data) {
   fs.write(reinterpret_cast<const char *>(&data), sizeof(T));
+}
+template <typename T> void read_bin(fstream &fs, T &data) {
+  fs.read(reinterpret_cast<char *>(&data), sizeof(T));
 }
 
 void sup_init() {
@@ -74,6 +88,45 @@ void fat_init() {
   }
 }
 
+int alloc_block() {
+  file.seekg(sb.fat_start_block * sb.block_size);
+  int32_t current_fat_entry;
+  for (uint32_t i = 0; i < sb.block_count; i++) {
+    read_bin(file, current_fat_entry);
+    if (current_fat_entry == BLOCK_EMPTY) {
+      return i;
+    }
+  }
+  return -1;
+}
+void root_init() {
+  int root_block = alloc_block();
+  if (root_block == -1) {
+    cout << "disk full" << endl;
+    return;
+  }
+  sb.root_start_block = root_block;
+  file.seekp((sb.fat_start_block * sb.block_size) +
+             (root_block * sizeof(uint32_t)));
+  write_bin(file, BLOCK_EOF);
+  DirEntry entries[8]; // 8 * 64 bytes = 512 bytes
+  memset(entries, 0, sizeof(entries));
+  // init . (cur dir)
+  entries[0].is_used = 1;
+  strncpy(entries[0].name, ".", 53);
+  entries[0].is_dir = 1;
+  entries[0].start_block = root_block;
+  entries[0].size = 0;
+  // init .. (parent dir)
+  entries[1].is_used = 1;
+  strncpy(entries[1].name, "..", 53);
+  entries[1].is_dir = 1;
+  entries[1].start_block = root_block;
+  entries[1].size = 0;
+  file.seekp(root_block * sb.block_size);
+  write_bin(file, entries);
+}
+
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -85,10 +138,24 @@ int main() {
   wipe_disk(); // this should probably be optional
   fat_init();
 
+  root_init();
+
   // write the sperblock data onto the disk
   file.seekp(0);
   write_bin(file, sb);
   file.flush();
-
+  string command;
+  while (true) {
+    cout << "MyFs> ";
+    if (!getline(cin, command)) {
+      break;
+    }
+    if (command == "exit") {
+      break;
+    }
+  }
+  if (file) {
+    file.close();
+  }
   return 0;
 }
