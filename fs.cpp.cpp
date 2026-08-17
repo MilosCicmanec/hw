@@ -7,7 +7,7 @@
 
 #include <set>
 
-
+#include <sstream>
 #include <vector>
 
 using namespace std;
@@ -64,7 +64,6 @@ int32_t current_fat_entry(uint32_t block_index) {
   read_bin(file, value);
   return value;
 }
-
 void sup_init() {
   memset(sb.name, 0, sizeof(sb.name));
   strncpy(sb.name, "MyFs", sizeof(sb.name) - 1);
@@ -76,7 +75,6 @@ void sup_init() {
   uint32_t tmp = (sb.block_count * 4 + (sb.block_size - 1)) / sb.block_size;
   sb.data_start_block = tmp + 1;
 }
-
 void wipe_disk() {
   file.seekp(0);
   vector<char> zero_block(sb.block_size, 0);
@@ -86,7 +84,6 @@ void wipe_disk() {
   file.flush();
   cout << "Disk zeroed out completely" << endl;
 }
-
 void fat_init() {
   file.seekp(sb.fat_start_block * sb.block_size);
   for (int i = 0; i < sb.block_count; i++) {
@@ -97,15 +94,14 @@ void fat_init() {
     }
   }
 }
-
 int alloc_block() {
-  //file.seekg(sb.fat_start_block * sb.block_size);
-  //int32_t current_fat_entry;
-  //for (uint32_t i = 0; i < sb.block_count; i++) {
-  //  read_bin(file, current_fat_entry);
-  //  if (current_fat_entry == BLOCK_EMPTY) {
-  //    return i;
-  //  }
+  // file.seekg(sb.fat_start_block * sb.block_size);
+  // int32_t current_fat_entry;
+  // for (uint32_t i = 0; i < sb.block_count; i++) {
+  //   read_bin(file, current_fat_entry);
+  //   if (current_fat_entry == BLOCK_EMPTY) {
+  //     return i;
+  //   }
   for (uint32_t i = sb.data_start_block; i < sb.block_count; i++) {
     if (current_fat_entry(i) == BLOCK_EMPTY) {
       return i;
@@ -120,8 +116,8 @@ void root_init() {
     return;
   }
   sb.root_start_block = root_block;
-  //file.seekp((sb.fat_start_block * sb.block_size) + (root_block * sizeof(uint32_t)));
-  //write_bin(file, BLOCK_EOF);
+  // file.seekp((sb.fat_start_block * sb.block_size) + (root_block *
+  // sizeof(uint32_t))); write_bin(file, BLOCK_EOF);
   set_fat_entry(root_block, BLOCK_EOF);
   DirEntry entries[8]; // 8 * 64 bytes = 512 bytes
   memset(entries, 0, sizeof(entries));
@@ -140,8 +136,6 @@ void root_init() {
   file.seekp(root_block * sb.block_size);
   write_bin(file, entries);
 }
-
-
 bool try_insert_in_block(uint32_t block_index, DirEntry new_entry) {
   DirEntry entries[8];
   file.seekg(block_index * sb.block_size);
@@ -170,7 +164,6 @@ void expand_dir(uint32_t last_block, DirEntry new_entry) {
   file.seekp(new_block * sb.block_size);
   write_bin(file, new_block_entries);
 }
-
 void add_entry_dir(uint32_t dir_start_block, DirEntry new_entry) {
   uint32_t current_block = dir_start_block;
   int32_t next_block;
@@ -188,15 +181,38 @@ void add_entry_dir(uint32_t dir_start_block, DirEntry new_entry) {
   }
   expand_dir(current_block, new_entry);
 }
+bool entry_exists(uint32_t dir_start_block, const string &name) {
+  uint32_t current_block = dir_start_block;
+  DirEntry entries[8];
+  while (true) {
+    file.seekg(current_block * sb.block_size);
+    read_bin(file, entries);
+    for (int i = 0; i < 8; i++) {
+      if (entries[i].is_used && name == entries[i].name) {
+        return true;
+      }
+    }
+    int32_t next_block = current_fat_entry(current_block);
+    if (next_block == BLOCK_EOF || next_block < 0) {
+      break;
+    }
+    current_block = next_block;
+  }
+  return false;
+}
 void cm_mkdir(string name) {
+  if (entry_exists(cur_dir, name)) {
+    cout << "dir already exists" << endl;
+    return;
+  }
   int32_t dir_block = alloc_block();
   if (dir_block == -1) {
     cout << "disk full" << endl;
     return;
   }
-  //file.seekp((sb.fat_start_block * sb.block_size) +
-  //           (dir_block * sizeof(uint32_t)));
-  //write_bin(file, BLOCK_EOF);
+  // file.seekp((sb.fat_start_block * sb.block_size) +
+  //            (dir_block * sizeof(uint32_t)));
+  // write_bin(file, BLOCK_EOF);
   set_fat_entry(dir_block, BLOCK_EOF);
   DirEntry entries[8];
   memset(entries, 0, sizeof(entries));
@@ -222,11 +238,12 @@ void cm_mkdir(string name) {
   new_folder_entry.size = 0;
 
   add_entry_dir(cur_dir, new_folder_entry);
+  file.flush();
 }
-void sys_init(){
-  wipe_disk(); // this should probably be optional
-  fat_init();
+void sys_init() {
   sup_init();
+  wipe_disk(); 
+  fat_init();
   root_init();
 
   // write the sperblock data onto the disk
@@ -242,11 +259,11 @@ int open_file(const string &filename) {
     file.open(filename, ios::out | ios::binary);
     file.close();
     file.open(filename, ios::in | ios::out | ios::binary);
-    if (!file.is_open()) return 1;
+    if (!file.is_open())
+      return 1;
     sys_init();
-    
-    return 0;
 
+    return 0;
   }
   file.seekg(0);
   read_bin(file, sb);
@@ -255,6 +272,63 @@ int open_file(const string &filename) {
   }
   return 0;
 }
+void cm_ls() {
+  uint32_t current_block = cur_dir;
+  DirEntry entries[8];
+  while (true) {
+    file.seekg(current_block * sb.block_size);
+    read_bin(file, entries);
+    for (int i = 0; i < 8; i++) {
+      if (entries[i].is_used == 1) {
+        if (entries[i].is_dir) {
+          cout << "[DIR] ";
+        } else {
+          cout << "[FILE] ";
+        }
+        cout << entries[i].name << "\t " << entries[i].size << " B" << endl;
+      }
+    }
+    int32_t next_block = current_fat_entry(current_block);
+    if (next_block == BLOCK_EOF || next_block < 0) {
+      break;
+    }
+    current_block = next_block;
+  }
+}
+void run_console() {
+  string line;
+  while (true) {
+    cout << "MyFs> ";
+    if (!getline(cin, line)) {
+      break;
+    }
+    
+    stringstream ss(line);
+    string command;
+    ss >> command;
+    
+    if (command.empty()) {
+      continue;
+    }
+    
+    if (command == "exit") {
+      break;
+    } else if (command == "mkdir") {
+      string dirname;
+      // Added safety check to ensure a directory name was provided
+      if (ss >> dirname) {
+        cm_mkdir(dirname);
+      } else {
+        cout << "Usage: mkdir <directory_name>" << endl;
+      }
+    } else if (command == "ls") {
+      cm_ls();
+    } else {
+      cout << "Unknown command: " << command << endl;
+    }
+  }
+}
+
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -262,21 +336,9 @@ int main() {
   } else {
     cout << "File opening error" << endl;
   }
-  sup_init();
+  //sup_init();
   cur_dir = sb.root_start_block;
-
-  string command;
-  while (true) {
-    cout << "MyFs> ";
-    if (!getline(cin, command)) {
-      break;
-    }
-    if (command == "exit") {
-      break;
-    } else if (command.substr(0, 5) == "mkdir") {
-      cm_mkdir(command.substr(6));
-    }
-  }
+  run_console();
   if (file) {
     file.close();
   }
