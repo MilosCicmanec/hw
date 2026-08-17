@@ -1,20 +1,17 @@
-#include <bits/stdc++.h>
 #include <cstdint>
 #include <cstring>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <memory_resource>
+
 #include <set>
-#include <sys/types.h>
-#include <unistd.h>
+
+
 #include <vector>
 
 using namespace std;
-using vi = vector<int>;
 using ll = long long;
-using vl = vector<long long>;
 
 const int32_t BLOCK_EMPTY = -2;
 const int32_t BLOCK_EOF = -1;
@@ -49,11 +46,23 @@ uint32_t cur_dir;
 // write bin will work but only for simple data structs like int float etc
 template <typename T> void write_bin(fstream &fs, const T &data) {
   fs.write(reinterpret_cast<const char *>(&data), sizeof(T));
-  fs.flush();
 }
 template <typename T> void read_bin(fstream &fs, T &data) {
   fs.read(reinterpret_cast<char *>(&data), sizeof(T));
-  fs.flush();
+}
+// writes a new value to the fat table for a specific block
+void set_fat_entry(uint32_t block_index, int32_t value) {
+  file.seekp((sb.fat_start_block * sb.block_size) +
+             (block_index * sizeof(uint32_t)));
+  write_bin(file, value);
+}
+// reads what the fat table value is for a specific block
+int32_t current_fat_entry(uint32_t block_index) {
+  int32_t value;
+  file.seekg((sb.fat_start_block * sb.block_size) +
+             (block_index * sizeof(uint32_t)));
+  read_bin(file, value);
+  return value;
 }
 
 void sup_init() {
@@ -64,16 +73,10 @@ void sup_init() {
   sb.block_size = 512;
   sb.fat_start_block = 1;
 
-  ll tmp = (sb.block_count * 4 + (sb.block_size - 1)) / sb.block_size;
+  uint32_t tmp = (sb.block_count * 4 + (sb.block_size - 1)) / sb.block_size;
   sb.data_start_block = tmp + 1;
 }
-int open_file(const string &filename) {
-  file.open(filename, ios::in | ios::out | ios::binary);
-  if (!file.is_open()) {
-    return 1;
-  }
-  return 0;
-}
+
 void wipe_disk() {
   file.seekp(0);
   vector<char> zero_block(sb.block_size, 0);
@@ -96,26 +99,30 @@ void fat_init() {
 }
 
 int alloc_block() {
-  file.seekg(sb.fat_start_block * sb.block_size);
-  int32_t current_fat_entry;
-  for (uint32_t i = 0; i < sb.block_count; i++) {
-    read_bin(file, current_fat_entry);
-    if (current_fat_entry == BLOCK_EMPTY) {
+  //file.seekg(sb.fat_start_block * sb.block_size);
+  //int32_t current_fat_entry;
+  //for (uint32_t i = 0; i < sb.block_count; i++) {
+  //  read_bin(file, current_fat_entry);
+  //  if (current_fat_entry == BLOCK_EMPTY) {
+  //    return i;
+  //  }
+  for (uint32_t i = sb.data_start_block; i < sb.block_count; i++) {
+    if (current_fat_entry(i) == BLOCK_EMPTY) {
       return i;
     }
   }
   return -1;
 }
 void root_init() {
-  uint32_t root_block = alloc_block();
+  int32_t root_block = alloc_block();
   if (root_block == -1) {
     cout << "disk full" << endl;
     return;
   }
   sb.root_start_block = root_block;
-  file.seekp((sb.fat_start_block * sb.block_size) +
-             (root_block * sizeof(uint32_t)));
-  write_bin(file, BLOCK_EOF);
+  //file.seekp((sb.fat_start_block * sb.block_size) + (root_block * sizeof(uint32_t)));
+  //write_bin(file, BLOCK_EOF);
+  set_fat_entry(root_block, BLOCK_EOF);
   DirEntry entries[8]; // 8 * 64 bytes = 512 bytes
   memset(entries, 0, sizeof(entries));
   // init . (cur dir)
@@ -134,20 +141,7 @@ void root_init() {
   write_bin(file, entries);
 }
 
-// reads what the fat table value is for a specific block
-int32_t current_fat_entry(uint32_t block_index) {
-  int32_t value;
-  file.seekg((sb.fat_start_block * sb.block_size) +
-             (block_index * sizeof(uint32_t)));
-  read_bin(file, value);
-  return value;
-}
-// writes a new value to the fat table for a specific block
-void set_fat_entry(uint32_t block_index, int32_t value) {
-  file.seekp((sb.fat_start_block * sb.block_size) +
-             (block_index * sizeof(uint32_t)));
-  write_bin(file, value);
-}
+
 bool try_insert_in_block(uint32_t block_index, DirEntry new_entry) {
   DirEntry entries[8];
   file.seekg(block_index * sb.block_size);
@@ -195,14 +189,15 @@ void add_entry_dir(uint32_t dir_start_block, DirEntry new_entry) {
   expand_dir(current_block, new_entry);
 }
 void cm_mkdir(string name) {
-  uint32_t dir_block = alloc_block();
+  int32_t dir_block = alloc_block();
   if (dir_block == -1) {
     cout << "disk full" << endl;
     return;
   }
-  file.seekp((sb.fat_start_block * sb.block_size) +
-             (dir_block * sizeof(uint32_t)));
-  write_bin(file, BLOCK_EOF);
+  //file.seekp((sb.fat_start_block * sb.block_size) +
+  //           (dir_block * sizeof(uint32_t)));
+  //write_bin(file, BLOCK_EOF);
+  set_fat_entry(dir_block, BLOCK_EOF);
   DirEntry entries[8];
   memset(entries, 0, sizeof(entries));
   // init "." (cur dir)
@@ -228,7 +223,38 @@ void cm_mkdir(string name) {
 
   add_entry_dir(cur_dir, new_folder_entry);
 }
+void sys_init(){
+  wipe_disk(); // this should probably be optional
+  fat_init();
+  sup_init();
+  root_init();
 
+  // write the sperblock data onto the disk
+  file.seekp(0);
+  write_bin(file, sb);
+  file.flush();
+  cout << "System initialized" << endl;
+}
+int open_file(const string &filename) {
+  file.open(filename, ios::in | ios::out | ios::binary);
+  if (!file.is_open()) {
+    file.clear();
+    file.open(filename, ios::out | ios::binary);
+    file.close();
+    file.open(filename, ios::in | ios::out | ios::binary);
+    if (!file.is_open()) return 1;
+    sys_init();
+    
+    return 0;
+
+  }
+  file.seekg(0);
+  read_bin(file, sb);
+  if (strncmp(sb.name, "MyFs", sizeof(sb.name)) != 0) {
+    sys_init();
+  }
+  return 0;
+}
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -237,15 +263,6 @@ int main() {
     cout << "File opening error" << endl;
   }
   sup_init();
-  wipe_disk(); // this should probably be optional
-  fat_init();
-
-  root_init();
-
-  // write the sperblock data onto the disk
-  file.seekp(0);
-  write_bin(file, sb);
-  file.flush();
   cur_dir = sb.root_start_block;
 
   string command;
