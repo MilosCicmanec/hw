@@ -2,8 +2,12 @@
 #include <cstdint>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory_resource>
+#include <set>
+#include <sys/types.h>
 #include <unistd.h>
 #include <vector>
 
@@ -41,12 +45,15 @@ struct DirEntry {
 // global variables
 Superblock sb;
 fstream file;
+uint32_t cur_dir;
 // write bin will work but only for simple data structs like int float etc
 template <typename T> void write_bin(fstream &fs, const T &data) {
   fs.write(reinterpret_cast<const char *>(&data), sizeof(T));
+  fs.flush();
 }
 template <typename T> void read_bin(fstream &fs, T &data) {
   fs.read(reinterpret_cast<char *>(&data), sizeof(T));
+  fs.flush();
 }
 
 void sup_init() {
@@ -100,7 +107,7 @@ int alloc_block() {
   return -1;
 }
 void root_init() {
-  int root_block = alloc_block();
+  uint32_t root_block = alloc_block();
   if (root_block == -1) {
     cout << "disk full" << endl;
     return;
@@ -127,6 +134,101 @@ void root_init() {
   write_bin(file, entries);
 }
 
+// reads what the fat table value is for a specific block
+int32_t current_fat_entry(uint32_t block_index) {
+  int32_t value;
+  file.seekg((sb.fat_start_block * sb.block_size) +
+             (block_index * sizeof(uint32_t)));
+  read_bin(file, value);
+  return value;
+}
+// writes a new value to the fat table for a specific block
+void set_fat_entry(uint32_t block_index, int32_t value) {
+  file.seekp((sb.fat_start_block * sb.block_size) +
+             (block_index * sizeof(uint32_t)));
+  write_bin(file, value);
+}
+bool try_insert_in_block(uint32_t block_index, DirEntry new_entry) {
+  DirEntry entries[8];
+  file.seekg(block_index * sb.block_size);
+  read_bin(file, entries);
+  for (int i = 0; i < 8; i++) {
+    if (entries[i].is_used == 0) {
+      entries[i] = new_entry;
+      file.seekp(block_index * sb.block_size);
+      write_bin(file, entries);
+      return true;
+    }
+  }
+  return false;
+}
+void expand_dir(uint32_t last_block, DirEntry new_entry) {
+  int32_t new_block = alloc_block();
+  if (new_block == -1) {
+    cout << "disk full" << endl;
+    return;
+  }
+  set_fat_entry(last_block, new_block);
+  set_fat_entry(new_block, BLOCK_EOF);
+  DirEntry new_block_entries[8];
+  memset(new_block_entries, 0, sizeof(new_block_entries));
+  new_block_entries[0] = new_entry;
+  file.seekp(new_block * sb.block_size);
+  write_bin(file, new_block_entries);
+}
+
+void add_entry_dir(uint32_t dir_start_block, DirEntry new_entry) {
+  uint32_t current_block = dir_start_block;
+  int32_t next_block;
+
+  while (true) {
+    if (try_insert_in_block(current_block, new_entry)) {
+      return;
+    }
+    next_block = current_fat_entry(current_block);
+    if (next_block == BLOCK_EOF) {
+      break;
+    } else {
+      current_block = next_block;
+    }
+  }
+  expand_dir(current_block, new_entry);
+}
+void cm_mkdir(string name) {
+  uint32_t dir_block = alloc_block();
+  if (dir_block == -1) {
+    cout << "disk full" << endl;
+    return;
+  }
+  file.seekp((sb.fat_start_block * sb.block_size) +
+             (dir_block * sizeof(uint32_t)));
+  write_bin(file, BLOCK_EOF);
+  DirEntry entries[8];
+  memset(entries, 0, sizeof(entries));
+  // init "." (cur dir)
+  entries[0].is_used = 1;
+  strncpy(entries[0].name, ".", 53);
+  entries[0].is_dir = 1;
+  entries[0].start_block = dir_block;
+  entries[0].size = 0;
+  // parent dir ".."
+  entries[1].is_used = 1;
+  strncpy(entries[1].name, "..", 53);
+  entries[1].is_dir = 1;
+  entries[1].start_block = cur_dir;
+  entries[1].size = 0;
+  file.seekp(dir_block * sb.block_size);
+  write_bin(file, entries);
+  DirEntry new_folder_entry;
+  new_folder_entry.is_used = 1;
+  strncpy(new_folder_entry.name, name.c_str(), 53);
+  new_folder_entry.is_dir = 1;
+  new_folder_entry.start_block = dir_block;
+  new_folder_entry.size = 0;
+
+  add_entry_dir(cur_dir, new_folder_entry);
+}
+
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -144,6 +246,8 @@ int main() {
   file.seekp(0);
   write_bin(file, sb);
   file.flush();
+  cur_dir = sb.root_start_block;
+
   string command;
   while (true) {
     cout << "MyFs> ";
@@ -152,6 +256,8 @@ int main() {
     }
     if (command == "exit") {
       break;
+    } else if (command.substr(0, 5) == "mkdir") {
+      cm_mkdir(command.substr(6));
     }
   }
   if (file) {
