@@ -458,7 +458,71 @@ void rm_dir(uint32_t starting_block) {
     // free the dirs starting blocks
     rm_file(starting_block);
 }
+void cm_cd(const string &dirname) {
+    if (dirname == ".") {
+        return;
+    }
 
+    if (dirname == "..") {
+        // find .. and move to its start block
+        DirEntry entries[8];
+        uint32_t current_block = cur_dir;
+
+        while (true) {
+            file.seekg(current_block * sb.block_size);
+            read_bin(file, entries);
+
+            for (int i = 0; i < 8; i++) {
+                if (entries[i].is_used &&
+                    strcmp(entries[i].name, "..") == 0) {
+                    cur_dir = entries[i].start_block;
+                    return;
+                }
+            }
+
+            int32_t next = current_fat_entry(current_block);
+
+            if (next == BLOCK_EOF || next < 0) {
+                return;
+            }
+
+            current_block = next;
+        }
+    }
+
+    // Find the requested directory
+    DirEntry entries[8];
+    uint32_t current_block = cur_dir;
+
+    while (true) {
+        file.seekg(current_block * sb.block_size);
+        read_bin(file, entries);
+
+        for (int i = 0; i < 8; i++) {
+            if (entries[i].is_used &&
+                dirname == entries[i].name) {
+
+                if (!entries[i].is_dir) {
+                    cout << "Not a directory" << endl;
+                    return;
+                }
+
+                cur_dir = entries[i].start_block;
+                return;
+            }
+        }
+
+        int32_t next = current_fat_entry(current_block);
+
+        if (next == BLOCK_EOF || next < 0) {
+            break;
+        }
+
+        current_block = next;
+    }
+
+    cout << "Directory not found" << endl;
+}
 void run_console() {
   string line;
 
@@ -518,7 +582,15 @@ void run_console() {
       } else {
         cout << "Usage: rm <filename>" << endl;
       }
-    }
+    } else if (command == "cd") {
+      string dirname;
+
+      if (ss >> dirname) {
+        cm_cd(dirname);
+      } else {
+        cout << "Usage: cd <directory_name>" << endl;
+      }
+    } 
 
     else {
       cout << "Unknown command: " << command << endl;
