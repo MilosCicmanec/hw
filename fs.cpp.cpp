@@ -104,6 +104,7 @@ int alloc_block() {
   //   }
   for (uint32_t i = sb.data_start_block; i < sb.block_count; i++) {
     if (current_fat_entry(i) == BLOCK_EMPTY) {
+      set_fat_entry(i, BLOCK_EOF);
       return i;
     }
   }
@@ -118,7 +119,6 @@ void root_init() {
   sb.root_start_block = root_block;
   // file.seekp((sb.fat_start_block * sb.block_size) + (root_block *
   // sizeof(uint32_t))); write_bin(file, BLOCK_EOF);
-  set_fat_entry(root_block, BLOCK_EOF);
   DirEntry entries[8]; // 8 * 64 bytes = 512 bytes
   memset(entries, 0, sizeof(entries));
   // init . (cur dir)
@@ -157,7 +157,6 @@ void expand_dir(uint32_t last_block, DirEntry new_entry) {
     return;
   }
   set_fat_entry(last_block, new_block);
-  set_fat_entry(new_block, BLOCK_EOF);
   DirEntry new_block_entries[8];
   memset(new_block_entries, 0, sizeof(new_block_entries));
   new_block_entries[0] = new_entry;
@@ -213,7 +212,6 @@ void cm_mkdir(string name) {
   // file.seekp((sb.fat_start_block * sb.block_size) +
   //            (dir_block * sizeof(uint32_t)));
   // write_bin(file, BLOCK_EOF);
-  set_fat_entry(dir_block, BLOCK_EOF);
   DirEntry entries[8];
   memset(entries, 0, sizeof(entries));
   // init "." (cur dir)
@@ -231,6 +229,7 @@ void cm_mkdir(string name) {
   file.seekp(dir_block * sb.block_size);
   write_bin(file, entries);
   DirEntry new_folder_entry;
+  memset(&new_folder_entry, 0, sizeof(DirEntry));
   new_folder_entry.is_used = 1;
   strncpy(new_folder_entry.name, name.c_str(), 53);
   new_folder_entry.is_dir = 1;
@@ -242,7 +241,7 @@ void cm_mkdir(string name) {
 }
 void sys_init() {
   sup_init();
-  wipe_disk(); 
+  wipe_disk();
   fat_init();
   root_init();
 
@@ -295,40 +294,237 @@ void cm_ls() {
     current_block = next_block;
   }
 }
+
+void save_file(const vector<unsigned char> &data, const string &filename);
+bool load_file(string filename) {
+  ifstream file_to_load(filename, ios::binary);
+  if (!file_to_load.is_open()) {
+    cout << "Error opening file: " << filename << endl;
+    return false;
+  }
+  file_to_load.seekg(0, ios::end);
+  size_t dataLength = file_to_load.tellg();
+  file_to_load.seekg(0, ios::beg);
+
+  vector<unsigned char> buffer(dataLength);
+  // we cannot use read_bin because the size is dynamic (if we passed a pointer
+  // it sizeof(T) would just measure size of the pointer not the alocated
+  // memory)
+  file_to_load.read(reinterpret_cast<char *>(buffer.data()), dataLength);
+  cout << "File loaded successfully: " << filename << endl;
+  save_file(buffer, filename);
+  return true;
+}
+void save_file(const vector<unsigned char> &data, const string &filename) {
+  if (entry_exists(cur_dir, filename)) {
+    cout << "Entry already exists" << endl;
+    return;
+}
+
+
+  if (data.empty())
+    return;
+
+  int32_t size = data.size();
+  int32_t num_blocks = (size + sb.block_size - 1) / sb.block_size;
+  int32_t num_free_blocks = 0;
+  bool enough_space = false;
+  for (uint32_t i = sb.data_start_block; i < sb.block_count; i++) {
+    if (current_fat_entry(i) == BLOCK_EMPTY) {
+      num_free_blocks++;
+      if (num_free_blocks >= num_blocks) {
+        enough_space = true;
+        break;
+      }
+    }
+  }
+  if (!enough_space) {
+    cout << "Error: Not enough space on disk!" << endl;
+    return;
+  }
+  int32_t previous_block = -1;
+  int32_t first_block = -1; // this is needed for saving the dir entry
+
+  for (int i = 0; i < num_blocks; i++) {
+    int32_t current_block = alloc_block();
+
+    if (previous_block != -1) {
+
+      set_fat_entry(previous_block, current_block);
+    } else {
+      // remember the very fist block
+      first_block = current_block;
+    }
+    previous_block = current_block;
+    file.seekp(current_block * sb.block_size);
+    int bytes_to_write = sb.block_size;
+    if (i == num_blocks - 1) { // if its the last block
+      bytes_to_write = size - (i * sb.block_size);
+    }
+    file.write(
+        reinterpret_cast<const char *>(data.data() + (i * sb.block_size)),
+        bytes_to_write);
+  }
+  // create dir entry for the file
+  DirEntry new_entry;
+  memset(&new_entry, 0, sizeof(DirEntry));
+  new_entry.is_used = 1;
+  strncpy(new_entry.name, filename.c_str(), 53);
+  new_entry.is_dir = 0;
+  new_entry.start_block = first_block;
+  new_entry.size = size;
+  add_entry_dir(cur_dir, new_entry);
+  file.flush();
+  cout << "File " << filename << " saved." << endl;
+}
+void rm_file(uint32_t starting_block){
+  int32_t x = current_fat_entry(starting_block);
+  if (x != BLOCK_EOF)
+  {
+    rm_file(x);
+  }
+  set_fat_entry(starting_block, BLOCK_EMPTY);
+}
+void rm_dir(uint32_t starting_block);
+
+bool delete_entry(uint32_t dir_start_block, const string &name) {
+  uint32_t current_block = dir_start_block;
+  DirEntry entries[8];
+  while (true) {
+    file.seekg(current_block * sb.block_size);
+    read_bin(file, entries);
+    for (int i = 0; i < 8; i++) {
+      if (entries[i].is_used && name == entries[i].name) {
+        if (entries[i].is_dir)
+        {
+          rm_dir(entries[i].start_block);
+        } else {
+          rm_file(entries[i].start_block);
+        }
+        memset(&entries[i], 0 , sizeof(DirEntry));
+        file.seekp(current_block * sb.block_size);
+        write_bin(file, entries);
+
+        return true;
+      }
+    }
+    int32_t next_block = current_fat_entry(current_block);
+    if (next_block == BLOCK_EOF || next_block < 0) {
+      break;
+    }
+    current_block = next_block;
+  }
+  return false;
+}
+
+void rm_dir(uint32_t starting_block) {
+    uint32_t current_block = starting_block;
+    DirEntry entries[8];
+
+    while (true) {
+        file.seekg(current_block * sb.block_size);
+        read_bin(file, entries);
+
+        for (int i = 0; i < 8; i++) {
+            if (!entries[i].is_used) {
+                continue;
+            }
+
+            // Ignore . and ..
+            if (strcmp(entries[i].name, ".") == 0 ||
+                strcmp(entries[i].name, "..") == 0) {
+                continue;
+            }
+
+            if (entries[i].is_dir == 0) {
+                // It's a file
+                rm_file(entries[i].start_block);
+            } 
+            else {
+                // It's a directory
+                rm_dir(entries[i].start_block);
+            }
+        }
+
+        int32_t next_block = current_fat_entry(current_block);
+
+        if (next_block == BLOCK_EOF) {
+            break;
+        }
+
+        current_block = next_block;
+    }
+
+    // free the dirs starting blocks
+    rm_file(starting_block);
+}
+
 void run_console() {
   string line;
+
   while (true) {
     cout << "MyFs> ";
+
     if (!getline(cin, line)) {
       break;
     }
-    
+
     stringstream ss(line);
     string command;
     ss >> command;
-    
+
     if (command.empty()) {
       continue;
     }
-    
+
     if (command == "exit") {
       break;
-    } else if (command == "mkdir") {
+    }
+
+    else if (command == "ls") {
+      cm_ls();
+    }
+
+    else if (command == "mkdir") {
       string dirname;
-      // Added safety check to ensure a directory name was provided
+
       if (ss >> dirname) {
         cm_mkdir(dirname);
       } else {
         cout << "Usage: mkdir <directory_name>" << endl;
       }
-    } else if (command == "ls") {
-      cm_ls();
-    } else {
+    }
+
+    else if (command == "load") {
+      string filename;
+
+      if (ss >> filename) {
+        load_file(filename);
+      } else {
+        cout << "Usage: load <filename>" << endl;
+      }
+    }
+
+    else if (command == "rm") {
+      string filename;
+
+      if (ss >> filename) {
+        if (filename == "." || filename == "..") {
+          cout << "Cannot remove . or .." << endl;
+        } else {
+          delete_entry(cur_dir, filename);
+          file.flush();
+        }
+      } else {
+        cout << "Usage: rm <filename>" << endl;
+      }
+    }
+
+    else {
       cout << "Unknown command: " << command << endl;
     }
   }
 }
-
 int main() {
   // disk init
   if (open_file("archive.bin") == 0) {
@@ -336,7 +532,7 @@ int main() {
   } else {
     cout << "File opening error" << endl;
   }
-  //sup_init();
+  // sup_init();
   cur_dir = sb.root_start_block;
   run_console();
   if (file) {
