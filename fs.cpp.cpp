@@ -319,8 +319,7 @@ void save_file(const vector<unsigned char> &data, const string &filename) {
   if (entry_exists(cur_dir, filename)) {
     cout << "Entry already exists" << endl;
     return;
-}
-
+  }
 
   if (data.empty())
     return;
@@ -377,10 +376,9 @@ void save_file(const vector<unsigned char> &data, const string &filename) {
   file.flush();
   cout << "File " << filename << " saved." << endl;
 }
-void rm_file(uint32_t starting_block){
+void rm_file(uint32_t starting_block) {
   int32_t x = current_fat_entry(starting_block);
-  if (x != BLOCK_EOF)
-  {
+  if (x != BLOCK_EOF) {
     rm_file(x);
   }
   set_fat_entry(starting_block, BLOCK_EMPTY);
@@ -395,13 +393,12 @@ bool delete_entry(uint32_t dir_start_block, const string &name) {
     read_bin(file, entries);
     for (int i = 0; i < 8; i++) {
       if (entries[i].is_used && name == entries[i].name) {
-        if (entries[i].is_dir)
-        {
+        if (entries[i].is_dir) {
           rm_dir(entries[i].start_block);
         } else {
           rm_file(entries[i].start_block);
         }
-        memset(&entries[i], 0 , sizeof(DirEntry));
+        memset(&entries[i], 0, sizeof(DirEntry));
         file.seekp(current_block * sb.block_size);
         write_bin(file, entries);
 
@@ -418,110 +415,107 @@ bool delete_entry(uint32_t dir_start_block, const string &name) {
 }
 
 void rm_dir(uint32_t starting_block) {
-    uint32_t current_block = starting_block;
-    DirEntry entries[8];
+  uint32_t current_block = starting_block;
+  DirEntry entries[8];
 
-    while (true) {
-        file.seekg(current_block * sb.block_size);
-        read_bin(file, entries);
+  while (true) {
+    file.seekg(current_block * sb.block_size);
+    read_bin(file, entries);
 
-        for (int i = 0; i < 8; i++) {
-            if (!entries[i].is_used) {
-                continue;
-            }
+    for (int i = 0; i < 8; i++) {
+      if (!entries[i].is_used) {
+        continue;
+      }
 
-            // Ignore . and ..
-            if (strcmp(entries[i].name, ".") == 0 ||
-                strcmp(entries[i].name, "..") == 0) {
-                continue;
-            }
+      // Ignore . and ..
+      if (strcmp(entries[i].name, ".") == 0 ||
+          strcmp(entries[i].name, "..") == 0) {
+        continue;
+      }
 
-            if (entries[i].is_dir == 0) {
-                // It's a file
-                rm_file(entries[i].start_block);
-            } 
-            else {
-                // It's a directory
-                rm_dir(entries[i].start_block);
-            }
-        }
-
-        int32_t next_block = current_fat_entry(current_block);
-
-        if (next_block == BLOCK_EOF) {
-            break;
-        }
-
-        current_block = next_block;
+      if (entries[i].is_dir == 0) {
+        // It's a file
+        rm_file(entries[i].start_block);
+      } else {
+        // It's a directory
+        rm_dir(entries[i].start_block);
+      }
     }
 
-    // free the dirs starting blocks
-    rm_file(starting_block);
+    int32_t next_block = current_fat_entry(current_block);
+
+    if (next_block == BLOCK_EOF) {
+      break;
+    }
+
+    current_block = next_block;
+  }
+
+  // free the dirs starting blocks
+  rm_file(starting_block);
 }
 void cm_cd(const string &dirname) {
-    if (dirname == ".") {
-        return;
-    }
+  if (dirname == ".") {
+    return;
+  }
 
-    if (dirname == "..") {
-        // find .. and move to its start block
-        DirEntry entries[8];
-        uint32_t current_block = cur_dir;
-
-        while (true) {
-            file.seekg(current_block * sb.block_size);
-            read_bin(file, entries);
-
-            for (int i = 0; i < 8; i++) {
-                if (entries[i].is_used &&
-                    strcmp(entries[i].name, "..") == 0) {
-                    cur_dir = entries[i].start_block;
-                    return;
-                }
-            }
-
-            int32_t next = current_fat_entry(current_block);
-
-            if (next == BLOCK_EOF || next < 0) {
-                return;
-            }
-
-            current_block = next;
-        }
-    }
-
-    // Find the requested directory
+  if (dirname == "..") {
+    // find .. and move to its start block
     DirEntry entries[8];
     uint32_t current_block = cur_dir;
 
     while (true) {
-        file.seekg(current_block * sb.block_size);
-        read_bin(file, entries);
+      file.seekg(current_block * sb.block_size);
+      read_bin(file, entries);
 
-        for (int i = 0; i < 8; i++) {
-            if (entries[i].is_used &&
-                dirname == entries[i].name) {
+      for (int i = 0; i < 8; i++) {
+        if (entries[i].is_used && strcmp(entries[i].name, "..") == 0) {
+          cur_dir = entries[i].start_block;
+          return;
+        }
+      }
 
-                if (!entries[i].is_dir) {
-                    cout << "Not a directory" << endl;
-                    return;
-                }
+      int32_t next = current_fat_entry(current_block);
 
-                cur_dir = entries[i].start_block;
-                return;
-            }
+      if (next == BLOCK_EOF || next < 0) {
+        return;
+      }
+
+      current_block = next;
+    }
+  }
+
+  // Find the requested directory
+  DirEntry entries[8];
+  uint32_t current_block = cur_dir;
+
+  while (true) {
+    file.seekg(current_block * sb.block_size);
+    read_bin(file, entries);
+
+    for (int i = 0; i < 8; i++) {
+      if (entries[i].is_used && dirname == entries[i].name) {
+
+        if (!entries[i].is_dir) {
+          cout << "Not a directory" << endl;
+          return;
         }
 
-        int32_t next = current_fat_entry(current_block);
-
-        if (next == BLOCK_EOF || next < 0) {
-            break;
-        }
-
-        current_block = next;
+        cur_dir = entries[i].start_block;
+        return;
+      }
     }
 
-    cout << "Directory not found" << endl;
+    int32_t next = current_fat_entry(current_block);
+
+    if (next == BLOCK_EOF || next < 0) {
+      break;
+    }
+
+    current_block = next;
+  }
+
+  cout << "Directory not found" << endl;
 }
 void run_console() {
   string line;
@@ -590,7 +584,7 @@ void run_console() {
       } else {
         cout << "Usage: cd <directory_name>" << endl;
       }
-    } 
+    }
 
     else {
       cout << "Unknown command: " << command << endl;
