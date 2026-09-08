@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -197,5 +198,48 @@ public:
       rm_file(x);
     }
     set_fat_entry(starting_block, BLOCK_EMPTY);
+  }
+};
+
+class FileSystem {
+public:
+  Superblock sb;
+  uint32_t cur_dir;
+  BlockDevice disk;
+  FatTable fat;
+  FileSystem() : cur_dir(0).fat(disk, sb) {}
+  void sup_init() {
+    memset(sb.name, 0, sizeof(sb.name));
+    strncpy(sb.name, "MyFs", sizeof(sb.name) - 1);
+    sb.block_count = 1024;
+    sb.block_size = 512;
+    sb.fat_start_block = 1;
+    uint32_t tmp = (sb.block_count * 4 + (sb.block_size - 1)) / sb.block_size;
+    sb.data_start_block = tmp + 1;
+  }
+  void root_init() {
+    int32_t root_block = fat.alloc_block();
+    if (root_block == -1) {
+      cout << "disk full" << endl;
+      return;
+    }
+    sb.root_start_block = root_block;
+    DirEntry entries[8];
+    memset(entries, 0, sizeof(entries));
+    entries[0].is_used = 1;
+    strncpy(entries[0].name, ".", 53);
+    entries[0].is_dir = 1;
+    entries[0].start_block = root_block;
+    entries[0].size = 0;
+
+    // init .. (parent dir)
+    entries[1].is_used = 1;
+    strncpy(entries[1].name, "..", 53);
+    entries[1].is_dir = 1;
+    entries[1].start_block = root_block;
+    entries[1].size = 0;
+
+    disk.seekp(root_block * sb.block_size);
+    disk.write_bin(entries);
   }
 };
