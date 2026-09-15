@@ -1,0 +1,11 @@
+&& and
+& bitwise and
+|| or 
+| bitwise or 
+!not 
+!= not equal 
+> 
+>=
+<
+<= 
+== 
