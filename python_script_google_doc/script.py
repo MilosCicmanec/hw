@@ -95,7 +95,7 @@ def simulate_typing(file_path):
             time.sleep(random.uniform(0.3, 0.7))
             for c in correction:
                 type_character(c)
-                time.sleep(random.uniform(0.15, 0.35))  # Match new slower speed
+                time.sleep(random.uniform(0.04, 0.05))  # Match new slower speed
                 chars_since_sentence_start += 1
 
             chars_since_space = len(correction)
@@ -135,7 +135,7 @@ def simulate_typing(file_path):
 
         else:
             # Slower ~40 WPM pace
-            time.sleep(random.uniform(0.15, 0.35))
+            time.sleep(random.uniform(0.10, 0.3))
 
         i += 1
 

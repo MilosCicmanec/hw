@@ -8,4 +8,8 @@
 >=
 <
 <= 
-== 
+==
+do{
+    // insturctions 
+  }while (condition)
+pointa toho je ze condition sa skontroluje az po vykonani do
