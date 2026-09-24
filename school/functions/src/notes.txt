@@ -1,0 +1,27 @@
+public - visible to everyone
+private - visible within a class
+protected
+package-private
+
+public static void main();
+static zatial musime pisat vzdy 
+
+return types:
+String 
+int 
+short
+long 
+float
+double 
+void 
+...
+
+main() <= inside the braces you put the arguments along with their type 
+
+for exaple 
+
+public static int main(int num){
+    return num;
+}
+
+
