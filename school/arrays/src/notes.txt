@@ -1,0 +1,4 @@
+array.lenght -> toto je variable ktora obsahuje velkost array
+.length() -> pri stringoch iba
+
+int[] list_of_zeros = new int[x]; will make a list and fill it with x zeros

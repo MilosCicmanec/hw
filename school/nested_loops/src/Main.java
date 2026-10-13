@@ -1,10 +1,22 @@
+import java.util.Scanner;
+
 public class Main {
   public static void main() {
-    for (int i = 1; i < 11; i++) {
-      for (int j = 1; j < 11; j++) {
-        System.out.print(i * j + "\t");
+    Scanner sc = new Scanner(System.in);
+    int num = sc.nextInt();
+    int res = 0;
+    boolean b = false;
+    while (num > 0) {
+      if (b) {
+        res += num % 10;
+        b = false;
+      } else {
+        b = true;
       }
-      System.out.println();
+      num = (int) (num / 10);
     }
+    System.out.println(res);
+    sc.close();
+
   }
 }

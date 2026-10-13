@@ -1,0 +1,12 @@
+Vector<ObjectType> variable_name = new Vector<>(capacity);
+
+ObjectType cannot be a basic data type :
+int -> Integer 
+double -> Double 
+bool -> Boolean
+
+variable.add() - adds something to the end of the list
+.size() -  returns the size of the list 
+.elementAt() - returns the element at index int
+.set(i,x) - sets the value at index i to x
+
