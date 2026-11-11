@@ -13,6 +13,13 @@ public class App {
   public static void main(String[] args) {
     Mammal a = new Mammal();
     Dog b = new Dog("husky", 15, "black white");
-
+    Mammal[] m = new Mammal[3];
+    m[0] = new Dog();
+    m[1] = new Mammal();
+    m[2] = new Cat();
+    for (Mammal mammal : m) {
+      mammal.sound();
+    }
   }
+
 }

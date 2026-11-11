@@ -14,6 +14,10 @@ public class Dog extends Mammal {
   public int legth;
   public String furColour;
 
+  public static void main(String[] args) {
+
+  }
+
   public Dog(String breed, int legth, String furColour) {
     super(); // calls a parent/super class (Mammal) constructor
     this.breed = breed;
@@ -30,5 +34,9 @@ public class Dog extends Mammal {
     this.breed = "";
     this.legth = (int) (Math.random() * 20);
     this.furColour = "brown";
+  }
+
+  public void sound() {
+    System.out.println("hafhaf");
   }
 }
