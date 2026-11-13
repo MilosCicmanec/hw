@@ -19,7 +19,6 @@ public class Car {
   int max_speed;
 
   public Car() {
-
   }
 
   public Car(String m, int s) {
