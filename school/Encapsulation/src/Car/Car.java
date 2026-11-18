@@ -18,6 +18,9 @@ public class Car {
   public int current_speed;
   int max_speed;
 
+  private Person[] passengers;
+  private Person driver = null;
+
   public Car() {
   }
 
@@ -26,19 +29,67 @@ public class Car {
     seats = s;
     current_speed = 0;
     max_speed = 100;
-  }
+    passengers = new Person[seats - 1];
 
+  }
   public Car(int c, Engine.FuelType f, int v, int hp, String m, int s) {
     engine = new Engine(v, c, f, hp);
     manufacturer = m;
     seats = s;
     current_speed = 0;
     max_speed = 150;
+    passengers = new Person[seats - 1];
+
+  }
+
+  public boolean legalState(Person p) {
+    if (p == null) {
+      return true;
+    } else {
+      return p.getLicence();
+    }
+  }
+
+  public Person getDriver() {
+    return this.driver;
   }
 
   public void start() {
-    engine.start();
-    System.out.println("Car started");
+    if (driver != null) {
+      engine.start();
+      System.out.println("Car started");
+    } else {
+      System.out.println("There is no driver");
+    }
+  }
+
+  public int numberOfPassengers() {
+    int n = 0;
+    for (Person p : passengers) {
+      if (p != null)
+        n++;
+    }
+    if (driver == null)
+      return n;
+    return n + 1;
+  }
+
+  public void setDriver(Person d) {
+    this.driver = d;
+  }
+
+  public void passengerIn(Person p) {
+    for (int i = 0; i < passengers.length; i++) {
+      if (passengers[i] == null) {
+        passengers[i] = p;
+        return;
+      }
+    }
+    System.out.println("No place found");
+  }
+
+  public void passengerOut(int idx) {
+    passengers[idx] = null;
   }
 
   public void stop() {
